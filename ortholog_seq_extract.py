@@ -55,7 +55,7 @@ logging.info('Parsing Input Arguements Completed\n')
 # function to config one input gff file
 def readGFF(file,seqs):
 
-    gffDict, startDict, endDict = {}, {}, {}
+    gffDict, isoDict, startDict, endDict = {}, {}, {}, {}
 
     with open(file) as f:
         for line in f:
@@ -77,26 +77,42 @@ def readGFF(file,seqs):
                         id = i.split('_')[-1]
                     else:
                         id = i.split('=')[-1]
-                    if '.' in id:
-                        id = id.split('.')[0]
+                    if '.t' in id and len(id.split('.')[0])>5:
+                        # record isoforms in isoDict
+                        id = id.replace('.cds', '')
+                        temp = id.split('.')[0]
+                        if temp not in isoDict: isoDict[temp] = []
+                        isoDict[temp].append(id)
 
             if id not in gffDict:
-                gffDict[id] = {'CDS':[], 'intron':[]}
+                gffDict[id] = {'CDS':[], 'intron':[], 'length':0}
 
             # parse CDS/intron/gene coordinates info
             if part == 'CDS':
                 gffDict[id]['CDS'].append((chr,int(start),int(end)))
+                gffDict[id]['length'] += (int(end) - int(start))
             elif part == 'intron':
                 gffDict[id]['intron'].append((chr,int(start),int(end)))
+                gffDict[id]['length'] += (int(end) - int(start))
             elif part == 'gene':
                 s, e = min(int(start),int(end)), max(int(start),int(end))
                 gffDict[id]['chr'] = chr
                 gffDict[id]['start'] = s
                 gffDict[id]['end'] = e
-
                 # the general gene start/end list
                 startDict[chr].append(s)
                 endDict[chr].append(e)
+            elif 'UTR' in part:
+                gffDict[id]['length'] += (int(end) - int(start))
+
+
+    # pick the largest isoform
+    for id,isoforms in isoDict.items():
+        lengths = [ gffDict[iso]['length'] for iso in isoforms ]
+        isoMax = isoforms[ lengths.index(max(lengths)) ]
+        #print(isoMax)
+        for k,v in gffDict[isoMax].items():
+            gffDict[ isoMax.split('.')[0] ][k] = v
 
     # sort the general gene start/end list for upstream/downstream parsing
     for k,v in startDict.items(): startDict[k].sort()
@@ -108,7 +124,8 @@ def readGFF(file,seqs):
 # function to perform a blastn operation for two given sequences
 def blastn(seq1, seq2, type):
 
-    logging.info('%s, seq1 len: %s, seq2 len: %s' %(type, len(seq1), len(seq2)))
+    logging.info('%s, seq1 len: %s, seq2 len: %s\n>seq1\n%s\n>seq2\n%s' \
+                %(type, len(seq1), len(seq2), seq1, seq2))
     if seq1 == '' or seq2 == '': return '0'
 
     out = open('temp1.fa', 'w')
@@ -162,6 +179,8 @@ if __name__ == "__main__":
         gffDict1[gene]['CDS'].sort(key = lambda k: int(k[2]))
         gffDict1[gene]['intron'].sort(key = lambda k: int(k[2]))
 
+        if '.t' in gene: continue # skip isoform entries
+
         chr = geneDict['chr']
         start = geneDict['start']
         end = geneDict['end']
@@ -183,6 +202,8 @@ if __name__ == "__main__":
     for gene,geneDict in gffDict2.items():
         gffDict2[gene]['CDS'].sort(key = lambda k: int(k[2]))
         gffDict2[gene]['intron'].sort(key = lambda k: int(k[2]))
+
+        if '.t' in gene: continue # skip isoform entries
 
         chr = geneDict['chr']
         start = geneDict['start']
@@ -217,7 +238,7 @@ if __name__ == "__main__":
         # skip genes on alternative chromosomes
         if not (gene1 in gffDict1 and gene2 in gffDict2): continue
 
-        '''if gene1 == 'CBR15891' and gene2 == 'CNI03405':
+        '''if gene1 == 'CNI00412' and gene2 == 'CBR18662':
             pass
         else:
             continue'''
